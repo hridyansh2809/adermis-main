@@ -73,6 +73,8 @@ class GatedHybridCNN(nn.Module):
             nn.AdaptiveAvgPool2d((7, 7))
         )
 
+        self.freq_proj = nn.Conv2d(64, 128, kernel_size=1, bias=True)
+
         self.freq_branch = nn.Sequential(
             nn.Conv2d(3, 32, 3, 1, 1),
             nn.ReLU(),
@@ -80,6 +82,11 @@ class GatedHybridCNN(nn.Module):
             nn.Conv2d(32, 64, 3, 1, 1),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((7, 7))
+        )
+         self.gate_module = nn.Sequential(
+            nn.Conv2d(128 + 128, 64, kernel_size=1),  
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=1) 
         )
 
         self.gate = nn.Sequential(
@@ -90,8 +97,9 @@ class GatedHybridCNN(nn.Module):
         )
 
         self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),            
             nn.Flatten(),
-            nn.Linear((128 + 64) * 7 * 7, 512),
+            nn.Linear(128, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, num_classes)
@@ -103,9 +111,11 @@ class GatedHybridCNN(nn.Module):
         fft = torch.abs(fft)
         fft = torch.log1p(fft)
         F_f = self.freq_branch(fft)
+        F_f = self.freq_proj(F_f)
         F_cat = torch.cat([F_s, F_f], dim=1)
-        gate_map = self.gate(F_cat)
-        F_fused = F_cat * gate_map
+        g_logits = self.gate_module(F_cat)
+        g = torch.sigmoid(g_logits) 
+        F_fused = g * F_s + (1.0 - g) * F_f
         return self.classifier(F_fused)
 
 
